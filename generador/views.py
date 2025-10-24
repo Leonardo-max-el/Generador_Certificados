@@ -1,0 +1,473 @@
+from django.shortcuts import render, redirect
+from django.http import FileResponse, HttpResponse
+from django.conf import settings
+import os
+import tempfile
+import pandas as pd
+import qrcode
+from docxtpl import DocxTemplate, InlineImage, RichText
+import uuid
+import json
+import datetime,time
+import pandas as pd
+from docx import Document
+from django.conf import settings
+from django.shortcuts import render
+from django.http import HttpResponse, FileResponse
+from docx.shared import Mm, Pt, RGBColor
+
+from docx2pdf import convert
+import pythoncom
+import win32com.client
+
+def generar_qr(dni, nombre, carrera):
+    # Generar ID único para el certificado
+    id_certificado = str(uuid.uuid4())
+    fecha_generacion = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Crear el contenido del QR
+    datos_qr = {
+        'id_certificado': id_certificado,
+        'dni': dni,
+        'nombre': nombre,
+        'carrera': carrera,
+        'fecha_generacion': fecha_generacion
+    }
+    
+    # Convertir a JSON
+    contenido_qr = json.dumps(datos_qr)
+    
+    # Crear el código QR
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=20,  # Aumentado de 10 a 20
+        border=4,
+    )
+    qr.add_data(contenido_qr)
+    qr.make(fit=True)
+
+    # Crear la imagen del QR en negro
+    qr_image = qr.make_image(fill_color="black", back_color="white")
+    
+    # Asegurar que existe el directorio para QR
+    qr_dir = os.path.join(settings.MEDIA_ROOT, 'qr')
+    os.makedirs(qr_dir, exist_ok=True)
+    
+    # Guardar el QR
+    qr_path = os.path.join(qr_dir, f'qr_{id_certificado}.png')
+    qr_image.save(qr_path)
+    
+    return qr_path, id_certificado
+
+def validar_usuario(dni, codigo=None, solo_dni=False):
+    # Ruta al archivo Excel
+    excel_path = os.path.join(settings.MEDIA_ROOT, 'plantillas', 'BD_CERTIFICADOS.xlsx')
+    
+    if not os.path.exists(excel_path):
+        return False, None
+    
+    try:
+        # Cargar el archivo Excel
+        df = pd.read_excel(excel_path)
+        
+        # Convertir DNI y CODIGO a string para comparación
+        df['DNI'] = df['DNI'].astype(str)
+        df['CODIGO'] = df['CODIGO'].astype(str)
+        
+        # Buscar el usuario en el DataFrame
+        if solo_dni:
+            # Si solo_dni es True, buscar solo por DNI
+            resultado = df[df['DNI'] == str(dni)]
+        else:
+            # Si no, buscar por DNI y CODIGO
+            resultado = df[(df['DNI'] == str(dni)) & (df['CODIGO'] == str(codigo))]
+        
+        if not resultado.empty:
+            datos = {
+                'dni': resultado['DNI'].values[0],
+                'nombre': resultado['NOMBRES'].values[0],
+                'carrera': resultado['CARRERA'].values[0],
+                'codigo': resultado['CODIGO'].values[0]
+            }
+            return True, datos
+        else:
+            return False, None
+    except Exception as e:
+        print(f"Error al validar usuario: {e}")
+        return False, None
+
+def index(request):
+    mensaje_error_login = None
+    
+    # Si el usuario ya está autenticado, mostrar directamente la página de confirmación
+    if request.session.get('autenticado'):
+        if request.session.get('es_admin'):
+            return redirect('admin_panel')
+        else:
+            dni = request.session.get('dni_validado')
+            valido, datos = validar_usuario(dni, None)
+            if valido:
+                return render(request, 'generador/confirmacion.html', {
+                    'nombre': datos['nombre'],
+                    'carrera': datos['carrera']
+                })
+            else:
+                request.session.flush()
+    
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+        
+        if form_type == 'login':
+            username = request.POST.get('username')
+            password = request.POST.get('password')
+            
+            # Verificar si es el administrador
+            if username == 'Upla_123' and password == 'Upla321':
+                request.session['autenticado'] = True
+                request.session['es_admin'] = True
+                return redirect('admin_panel')
+            else:
+                # Verificar usuario normal
+                valido, datos = validar_usuario(username, password)
+                if valido:
+                    request.session['autenticado'] = True
+                    request.session['es_admin'] = False
+                    request.session['dni_validado'] = datos['dni']
+                    request.session.save()  # Forzar el guardado de la sesión
+                    return render(request, 'generador/confirmacion.html', {
+                        'nombre': datos['nombre'],
+                        'carrera': datos['carrera']
+                    })
+                else:
+                    mensaje_error_login = "Usuario o contraseña incorrectos"
+                
+        elif form_type == 'logout':
+            # Cerrar sesión
+            request.session.flush()
+            return redirect('index')
+    
+    return render(request, 'generador/index.html', {
+        'mensaje_error_login': mensaje_error_login
+    })
+
+def admin_panel(request):
+    if not request.session.get('autenticado') or not request.session.get('es_admin'):
+        return redirect('index')
+        
+    mensaje_error = None
+    mensaje_exito = None
+    
+    if request.method == 'POST':
+        if 'excel_file' not in request.FILES:
+            mensaje_error = 'Por favor, seleccione un archivo Excel.'
+        else:
+            try:
+                # Guardar el archivo Excel
+                excel_file = request.FILES['excel_file']
+                excel_path = os.path.join(settings.MEDIA_ROOT, 'plantillas', 'BD_CERTIFICADOS.xlsx')
+                
+                with open(excel_path, 'wb+') as destination:
+                    for chunk in excel_file.chunks():
+                        destination.write(chunk)
+                
+                mensaje_exito = 'Archivo cargado exitosamente.'
+                
+            except Exception as e:
+                mensaje_error = f'Error al cargar el archivo: {str(e)}'
+    
+    return render(request, 'generador/admin.html', {
+        'mensaje_error': mensaje_error,
+        'mensaje_exito': mensaje_exito
+    })
+
+def descargar_plantilla(request):
+    print("Iniciando proceso de descarga...")
+    print("Estado de la sesión:", request.session.items())
+    
+    # Verificar si el usuario está autenticado
+    if not request.session.get('autenticado'):
+        print("Usuario no autenticado")
+        print("Contenido de la sesión:", dict(request.session))
+        return redirect('index')
+    
+    # Obtener el DNI de la sesión
+    dni = request.session.get('dni_validado')
+    if not dni:
+        print("DNI no encontrado en la sesión")
+        print("Contenido de la sesión:", dict(request.session))
+        return redirect('index')
+    
+    print(f"DNI encontrado en la sesión: {dni}")
+    
+    # Validar el DNI y obtener los datos (solo validación por DNI ya que está autenticado)
+    valido, datos = validar_usuario(dni, solo_dni=True)
+    if not valido or not datos:
+        print("DNI no válido o datos no encontrados")
+        print(f"Resultado de validación: valido={valido}, datos={datos}")
+        return redirect('index')
+    
+    print(f"Datos del usuario validados: {datos}")
+    
+    qr_path = None
+    temp_docx = None
+    temp_pdf = None
+    
+    try:
+        print("Generando código QR...")
+        # 1. Generar el código QR
+        qr_path, id_certificado = generar_qr(datos['dni'], datos['nombre'], datos['carrera'])
+        
+        # Ruta a la plantilla Word
+        plantilla_path = os.path.join(settings.MEDIA_ROOT, 'plantillas', 'plantilla_certificado.docx')
+        
+        if not os.path.exists(plantilla_path):
+            print("Plantilla no encontrada")
+            return render(request, 'generador/error.html', {
+                'error': 'No se encontró la plantilla de certificado Word.'
+            })
+        
+        print("Creando archivos temporales...")
+        # 2. Crear archivo temporal para Word y PDF
+        temp_docx = os.path.join(tempfile.gettempdir(), f'certificado_{datos["dni"]}.docx')
+        temp_pdf = os.path.join(tempfile.gettempdir(), f'certificado_{datos["dni"]}.pdf')
+        
+        # 3. Generar el certificado Word
+        print("Generando certificado Word...")
+        doc = DocxTemplate(plantilla_path)
+        
+        # Crear un RichText para el nombre con Times New Roman
+        nombre_rt = RichText()
+        nombre_rt.add(datos['nombre'], font='Times New Roman', size=56, bold=True, italic=True)  # Aumentado a 26 y agregado bold=True
+        
+        # Preparar el contexto con el nombre estilizado
+        context = {
+            'nombre': nombre_rt,
+            'qr_code': InlineImage(doc, qr_path, width=Mm(30), height=Mm(30)),
+            'id_certificado': id_certificado
+        }
+        
+        print("Contexto preparado:", context)
+        
+        # Renderizar la plantilla
+        doc.render(context)
+        doc.save(temp_docx)
+        
+        print("Certificado Word generado, convirtiendo a PDF...")
+        # 4. Convertir a PDF
+        pythoncom.CoInitialize()
+        convert(temp_docx, temp_pdf)
+        pythoncom.CoUninitialize()
+        
+        print("PDF generado, preparando respuesta...")
+        # 5. Preparar la respuesta con el PDF
+        with open(temp_pdf, 'rb') as pdf_file:
+            # Leer el contenido del PDF en memoria
+            pdf_content = pdf_file.read()
+            
+            # Crear la respuesta HTTP con el contenido del PDF
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="certificado_{datos["nombre"].replace(" ", "_")}.pdf"'
+            
+            print("Respuesta preparada, enviando archivo...")
+            return response
+            
+    except Exception as e:
+        print(f"Error durante la generación del certificado: {e}")
+        return render(request, 'generador/error.html', {
+            'error': f'Error al generar el certificado: {str(e)}'
+        })
+        
+    finally:
+        print("Limpiando archivos temporales...")
+        # 6. Limpiar archivos temporales
+        try:
+            if qr_path and os.path.exists(qr_path):
+                os.remove(qr_path)
+                print(f"QR eliminado: {qr_path}")
+        except Exception as e:
+            print(f"Error al eliminar QR: {e}")
+            
+        try:
+            if temp_docx and os.path.exists(temp_docx):
+                os.remove(temp_docx)
+                print(f"DOCX temporal eliminado: {temp_docx}")
+        except Exception as e:
+            print(f"Error al eliminar DOCX temporal: {e}")
+            
+        try:
+            if temp_pdf and os.path.exists(temp_pdf):
+                os.remove(temp_pdf)
+                print(f"PDF temporal eliminado: {temp_pdf}")
+        except Exception as e:
+            print(f"Error al eliminar PDF temporal: {e}")
+
+def generar_lote(request):
+    if request.method == 'POST':
+        # Verificar si se subió un archivo
+        if 'excel_file' not in request.FILES:
+            return render(request, 'generador/admin.html', {
+                'error': 'Por favor, seleccione un archivo Excel.'
+            })
+        
+        excel_file = request.FILES['excel_file']
+        cantidad = int(request.POST.get('cantidad', 0))
+        
+        if cantidad <= 0:
+            return render(request, 'generador/admin.html', {
+                'error': 'Por favor, ingrese una cantidad válida.'
+            })
+        
+        try:
+            # Leer el archivo Excel
+            df = pd.read_excel(excel_file)
+            
+            # Limitar a la cantidad especificada
+            df = df.head(cantidad)
+            
+            # Lista para almacenar los archivos temporales
+            temp_files = []
+            
+            # Importar InlineImage y Mm
+            from docxtpl import InlineImage
+            from docx.shared import Mm
+            
+            # Generar certificados para cada registro
+            for _, row in df.iterrows():
+                datos = {
+                    'dni': str(row['DNI']),
+                    'nombre': row['NOMBRES'],
+                    'carrera': row['CARRERA']
+                }
+                
+                # Generar QR
+                qr_path, id_certificado = generar_qr(datos['dni'], datos['nombre'], datos['carrera'])
+                
+                # Crear archivos temporales para Word y PDF
+                temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+                temp_docx.close()
+                temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                temp_pdf.close()
+                
+                # Generar el certificado
+                doc = DocxTemplate(os.path.join(settings.MEDIA_ROOT, 'plantillas', 'plantilla_certificado.docx'))
+                
+                # Crear la imagen inline con un tamaño de 30mm x 30mm
+                qr_image = InlineImage(doc, qr_path, width=Mm(30))
+                
+                # Preparar el contexto con la imagen QR
+                context = {
+                    'nombre': datos['nombre'],
+                    'carrera': datos['carrera'],
+                    'id_certificado': id_certificado,
+                    'qr_code': qr_image
+                }
+                
+                # Renderizar el documento
+                doc.render(context)
+                
+                # Guardar el documento Word
+                doc.save(temp_docx.name)
+                
+                # Inicializar COM y convertir a PDF
+                pythoncom.CoInitialize()
+                try:
+                    import win32com.client
+                    word = win32com.client.Dispatch("Word.Application")
+                    word.Visible = False
+                    doc = word.Documents.Open(temp_docx.name)
+                    doc.SaveAs(temp_pdf.name, FileFormat=17)  # 17 representa PDF
+                    doc.Close()
+                    word.Quit()
+                except Exception as e:
+                    print(f"Error al convertir a PDF: {str(e)}")
+                    # Limpiar archivos temporales antes de salir
+                    os.unlink(temp_docx.name)
+                    os.unlink(qr_path)
+                    return render(request, 'generador/admin.html', {
+                        'error': f'Error al generar el PDF para {datos["nombre"]}. Por favor, intente nuevamente.'
+                    })
+                finally:
+                    pythoncom.CoUninitialize()
+                
+                # Verificar que el archivo PDF se haya creado y esperar si es necesario
+                import time
+                max_attempts = 10
+                attempt = 0
+                while attempt < max_attempts:
+                    if os.path.exists(temp_pdf.name) and os.path.getsize(temp_pdf.name) > 0:
+                        break
+                    time.sleep(1)  # Esperar 1 segundo antes de verificar nuevamente
+                    attempt += 1
+                
+                if attempt >= max_attempts:
+                    # Limpiar archivos temporales antes de salir
+                    os.unlink(temp_docx.name)
+                    os.unlink(qr_path)
+                    for temp_file, _ in temp_files:
+                        if os.path.exists(temp_file):
+                            os.unlink(temp_file)
+                    return render(request, 'generador/admin.html', {
+                        'error': f'Error al generar el PDF para {datos["nombre"]}. Por favor, intente nuevamente.'
+                    })
+                
+                # Agregar el PDF y Word a la lista de archivos temporales
+                temp_files.append((temp_pdf.name, datos['nombre'], 'pdf'))
+                temp_files.append((temp_docx.name, datos['nombre'], 'docx'))
+                
+                # Eliminar el archivo QR temporal
+                os.unlink(qr_path)
+            
+            # Crear un archivo ZIP con todos los documentos
+            zip_path = os.path.join(settings.MEDIA_ROOT, 'certificados_lote.zip')
+            import zipfile
+            with zipfile.ZipFile(zip_path, 'w') as zip_file:
+                for temp_file, nombre, extension in temp_files:
+                    zip_file.write(temp_file, f'certificado_{nombre}.{extension}')
+                    os.unlink(temp_file)  # Eliminar el archivo temporal
+            
+            try:
+                # Crear un archivo ZIP en memoria
+                from io import BytesIO
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+                    for temp_file, nombre, extension in temp_files:
+                        # Leer el contenido del archivo temporal
+                        with open(temp_file, 'rb') as f:
+                            zip_file.writestr(f'certificado_{nombre}.{extension}', f.read())
+                        # Eliminar el archivo temporal después de agregarlo al ZIP
+                        os.unlink(temp_file)
+                
+                # Obtener el contenido del ZIP en memoria
+                zip_content = zip_buffer.getvalue()
+                zip_buffer.close()
+                
+                # Crear la respuesta con el contenido en memoria
+                response = HttpResponse(zip_content, content_type='application/zip')
+                response['Content-Disposition'] = 'attachment; filename="certificados_lote.zip"'
+                response['Content-Length'] = len(zip_content)
+                # Agregar headers para evitar el caché
+                response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response['Pragma'] = 'no-cache'
+                response['Expires'] = '0'
+                
+                return response
+                
+            except Exception as e:
+                # Si ocurre algún error, intentar limpiar el archivo ZIP
+                try:
+                    if os.path.exists(zip_path):
+                        os.unlink(zip_path)
+                except:
+                    pass
+                
+                return render(request, 'generador/admin.html', {
+                    'error': f'Error al descargar el archivo ZIP: {str(e)}'
+                })
+            
+        except Exception as e:
+            return render(request, 'generador/admin.html', {
+                'error': f'Error al procesar el archivo: {str(e)}'
+            })
+    
+    return redirect('index')

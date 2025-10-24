@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmación - Certificado UPLA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">Bienvenido</h1>
+            <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                <p class="text-gray-600">Nombre:</p>
+                <p class="text-gray-800 font-semibold">{{ nombre }}</p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <p class="text-gray-600">Carrera:</p>
+                <p class="text-gray-800 font-semibold">{{ carrera }}</p>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-4">
+            <a href="{% url 'descargar_plantilla' %}" 
+               target="_blank"
+               id="btnDescargar" 
+               class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-center">
+                Click aquí y se descarga su certificado
+            </a>
+
+            <form method="POST" action="{% url 'index' %}" class="text-center">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="logout">
+                <button type="submit" class="text-gray-600 hover:text-gray-800 font-medium transition-colors duration-300">
+                    Cerrar sesión
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

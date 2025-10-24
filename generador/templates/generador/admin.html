@@ -1,0 +1,86 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administrador - UPLA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto">
+            <!-- Encabezado -->
+            <div class="flex justify-between items-center mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Panel de Administrador</h1>
+                <form method="POST" action="{% url 'index' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="logout">
+                    <button type="submit" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-300">
+                        Cerrar Sesión
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tarjeta principal -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-6">Cargar Base de Datos de Certificados</h2>
+                
+                <!-- Formulario de carga de Excel -->
+                <form method="POST" enctype="multipart/form-data" class="space-y-6">
+                    {% csrf_token %}
+                    
+                    <!-- Campo de archivo -->
+                    <div class="space-y-2">
+                        <label for="excel_file" class="block text-sm font-medium text-gray-700">
+                            Seleccionar archivo Excel
+                        </label>
+                        <input type="file" 
+                               id="excel_file" 
+                               name="excel_file" 
+                               accept=".xlsx,.xls"
+                               class="block w-full text-sm text-gray-500
+                                      file:mr-4 file:py-2 file:px-4
+                                      file:rounded-full file:border-0
+                                      file:text-sm file:font-semibold
+                                      file:bg-blue-50 file:text-blue-700
+                                      hover:file:bg-blue-100
+                                      cursor-pointer">
+                        <p class="text-sm text-gray-500">El archivo debe contener las columnas: CODIGO, DNI, NOMBRES y CARRERA</p>
+                    </div>
+
+                    <!-- Botón de envío -->
+                    <button type="submit"
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300">
+                        Cargar Archivo
+                    </button>
+                </form>
+
+                <!-- Mensajes de error/éxito -->
+                {% if mensaje_error %}
+                <div class="mt-4 p-4 bg-red-100 border-l-4 border-red-500 text-red-700">
+                    <p>{{ mensaje_error }}</p>
+                </div>
+                {% endif %}
+
+                {% if mensaje_exito %}
+                <div class="mt-4 p-4 bg-green-100 border-l-4 border-green-500 text-green-700">
+                    <p>{{ mensaje_exito }}</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Información adicional -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Instrucciones</h3>
+                <ul class="list-disc list-inside space-y-2 text-gray-600">
+                    <li>El archivo Excel debe estar en formato .xlsx o .xls</li>
+                    <li>Asegúrese de que todas las columnas requeridas estén presentes</li>
+                    <li>Los DNIs deben ser únicos y válidos</li>
+                    <li>Los códigos servirán como contraseñas para los usuarios</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
