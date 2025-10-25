@@ -3,11 +3,10 @@ Utilidades optimizadas para la generación de certificados usando plantillas Wor
 """
 from docxtpl import DocxTemplate, InlineImage, RichText
 from docx.shared import Mm, Pt
+from docx import Document
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 import qrcode
 import os
 import json
@@ -45,7 +44,8 @@ def generar_certificado_desde_plantilla(datos, qr_path, id_certificado):
         
         # Contexto para la plantilla
         context = {
-            'nombre': datos['nombre'],  # Usamos el nombre directamente como está en la plantilla
+            # Usamos RichText para conservar estilo si la plantilla lo admite
+            'nombre': nombre_rt,
             'carrera': datos['carrera'],
             'qr_code': qr_image,
             'id_certificado': id_certificado,
@@ -90,91 +90,34 @@ def convertir_a_pdf(docx_path):
 
 def generar_pdf_directo(docx_path):
     """
-    Genera un PDF directamente usando ReportLab como fallback
+    Fallback mínimo: extrae el texto del DOCX y lo convierte a PDF.
     """
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, 
-                          rightMargin=72, leftMargin=72,
-                          topMargin=72, bottomMargin=18)
-    
-    # Estilos personalizados
+    pdf_doc = SimpleDocTemplate(buffer, pagesize=A4,
+                               rightMargin=72, leftMargin=72,
+                               topMargin=72, bottomMargin=18)
+
+    # Estilos
     styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle(
-        'TituloPersonalizado',
-        parent=styles['Heading1'],
-        fontSize=24,
-        spaceAfter=30,
-        alignment=TA_CENTER,
-        fontName='Times-Bold'
-    )
-    
-    nombre_style = ParagraphStyle(
-        'NombrePersonalizado',
-        parent=styles['Normal'],
-        fontSize=18,
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Times-BoldItalic'
-    )
-    
-    texto_style = ParagraphStyle(
-        'TextoPersonalizado',
-        parent=styles['Normal'],
-        fontSize=12,
-        spaceAfter=15,
-        alignment=TA_LEFT,
-        fontName='Times-Roman'
-    )
-    
-    # Contenido del certificado
+    normal_style = styles['Normal']
+
     story = []
-    
-    # Título
-    story.append(Paragraph("CERTIFICADO DE ESTUDIOS", titulo_style))
-    story.append(Spacer(1, 20))
-    
-    # Texto introductorio
-    story.append(Paragraph(
-        "Por medio del presente certificado, se hace constar que el estudiante:",
-        texto_style
-    ))
-    story.append(Spacer(1, 10))
-    
-    # Nombre del estudiante
-    story.append(Paragraph(nombre, nombre_style))
-    story.append(Spacer(1, 20))
-    
-    # Información adicional
-    story.append(Paragraph(
-        f"Ha completado satisfactoriamente sus estudios en la carrera de "
-        f"<b>{carrera}</b> en la Universidad Peruana Los Andes (UPLA).",
-        texto_style
-    ))
-    story.append(Spacer(1, 15))
-    
-    story.append(Paragraph(
-        "Este certificado es válido y puede ser verificado mediante el código QR "
-        "adjunto o visitando nuestro sistema de verificación.",
-        texto_style
-    ))
-    story.append(Spacer(1, 10))
-    
-    # Información de verificación
-    story.append(Paragraph(
-        f"ID de Certificado: {id_certificado}<br/>"
-        f"Fecha de emisión: {datetime.datetime.now().strftime('%d de %B de %Y')}",
-        texto_style
-    ))
-    story.append(Spacer(1, 30))
-    
-    # Código QR
-    if os.path.exists(qr_path):
-        qr_image = Image(qr_path, width=2*inch, height=2*inch)
-        story.append(qr_image)
-    
-    # Generar PDF
-    doc.build(story)
-    return buffer.getvalue()
+
+    try:
+        document = Document(docx_path)
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if text:
+                story.append(Paragraph(text, normal_style))
+                story.append(Spacer(1, 8))
+    except Exception:
+        # Si por alguna razón no podemos leer el DOCX, generar un PDF vacío
+        story.append(Paragraph("", normal_style))
+
+    pdf_doc.build(story)
+    contenido = buffer.getvalue()
+    buffer.close()
+    return contenido
 
 def generar_qr_optimizado(dni, nombre, carrera, codigo):
     """
@@ -233,19 +176,17 @@ def generar_qr_optimizado(dni, nombre, carrera, codigo):
 
 def crear_certificado_completo(datos, formato='pdf'):
     """
-    Función principal para crear certificados usando la plantilla Word
+    Crear certificado y devolverlo en memoria listo para descargar
     """
     try:
-        # 1. Generar QR
         qr_path, id_certificado, url_verificacion = generar_qr_optimizado(
             datos['dni'],
             datos['nombre'],
             datos['carrera'],
             datos['codigo']
         )
-        
+
         try:
-            # 2. Generar certificado usando la plantilla
             contenido = generar_certificado_desde_plantilla(
                 datos,
                 qr_path,
@@ -253,31 +194,22 @@ def crear_certificado_completo(datos, formato='pdf'):
             )
             mime_type = 'application/pdf'
             extension = 'pdf'
-            
-            # 3. Guardar el archivo en media
-            media_dir = os.path.join(settings.MEDIA_ROOT, 'certificados')
-            os.makedirs(media_dir, exist_ok=True)
-            archivo_path = os.path.join(media_dir, f'certificado_{id_certificado}.{extension}')
-            
-            with open(archivo_path, 'wb') as f:
-                f.write(contenido)
-            
-            # 4. Actualizar registro en la base de datos
+
+            # Guardar ruta PDF en base de datos (opcional)
             certificado = CertificadoGenerado.objects.get(id_certificado=id_certificado)
-            certificado.ruta_pdf = f'/media/certificados/certificado_{id_certificado}.{extension}'
+            certificado.ruta_pdf = f'/certificados/certificado_{id_certificado}.{extension}'  # solo referencia
             certificado.save()
-            
+
             return {
                 'contenido': contenido,
                 'mime_type': mime_type,
                 'nombre_archivo': f'certificado_{datos["nombre"].replace(" ", "_")}.{extension}',
                 'id_certificado': id_certificado
             }
-            
+
         finally:
-            # Limpiar QR temporal
             if os.path.exists(qr_path):
                 os.unlink(qr_path)
-                
+
     except Exception as e:
         raise Exception(f"Error al crear certificado: {str(e)}")

@@ -143,42 +143,33 @@ def generar_pdf_basado_en_plantilla(docx_path, qr_path):
     )
     
     story = []
-    
-    # Extraer TODO el contenido del documento Word procesado
-    # Esto incluye el nombre que ya fue insertado por docxtpl
+
+    # Passthrough: insertar todos los párrafos tal cual (sin textos adicionales)
+    normal_style = styles['Normal']
     for paragraph in doc.paragraphs:
         text = paragraph.text.strip()
         if text:
-            # Detectar el tipo de contenido basado en el texto
-            if "CERTIFICADO" in text.upper():
-                story.append(Paragraph(text, titulo_style))
-            elif "Por medio del presente" in text or "se hace constar" in text:
-                story.append(Paragraph(text, texto_style))
-            elif "Ha completado" in text or "Universidad Peruana" in text:
-                story.append(Paragraph(text, texto_style))
-            elif "ID de Certificado" in text or "Fecha de emisión" in text:
-                story.append(Paragraph(text, texto_style))
-            else:
-                # Si no coincide con los patrones conocidos, podría ser el nombre
-                # Aplicar estilo de nombre si parece ser un nombre (no muy largo, no muy corto)
-                if 5 <= len(text) <= 50 and not any(word in text.lower() for word in ['certificado', 'universidad', 'estudios', 'carrera']):
-                    story.append(Paragraph(text, nombre_style))
-                else:
-                    story.append(Paragraph(text, texto_style))
-            story.append(Spacer(1, 10))
-    
-    # Agregar código QR
+            story.append(Paragraph(text, normal_style))
+            story.append(Spacer(1, 6))
+
+    # Agregar código QR si existe
     if os.path.exists(qr_path):
-        qr_image = Image(qr_path, width=2*inch, height=2*inch)
-        story.append(qr_image)
-    
+        try:
+            from reportlab.lib.units import inch
+            from reportlab.platypus import Image as RLImage
+            qr_image = RLImage(qr_path, width=2*inch, height=2*inch)
+            story.append(qr_image)
+        except Exception:
+            # Si no es posible agregar la imagen, se omite
+            pass
+
     # Construir el PDF
     pdf_doc.build(story)
-    
+
     # Obtener el contenido del buffer
     pdf_content = buffer.getvalue()
     buffer.close()
-    
+
     return pdf_content
 
 
@@ -188,90 +179,45 @@ def generar_certificado_pdf_multiplataforma(nombre, carrera, id_certificado, qr_
     Reemplaza la conversión de Word a PDF que requiere pythoncom
     """
     buffer = BytesIO()
-    
+
     # Crear el documento PDF
-    doc = SimpleDocTemplate(buffer, pagesize=A4, 
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
                           rightMargin=72, leftMargin=72,
                           topMargin=72, bottomMargin=18)
-    
-    # Crear estilos personalizados
+
+    # Estilos mínimos
     styles = getSampleStyleSheet()
-    
-    # Estilo para el título principal
-    titulo_style = ParagraphStyle(
-        'TituloPersonalizado',
-        parent=styles['Heading1'],
-        fontSize=24,
-        spaceAfter=30,
-        alignment=TA_CENTER,
-        fontName='Times-Bold'
-    )
-    
-    # Estilo para el nombre del estudiante
-    nombre_style = ParagraphStyle(
-        'NombrePersonalizado',
-        parent=styles['Normal'],
-        fontSize=18,
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Times-BoldItalic'
-    )
-    
-    # Estilo para el texto del certificado
-    texto_style = ParagraphStyle(
-        'TextoPersonalizado',
-        parent=styles['Normal'],
-        fontSize=12,
-        spaceAfter=15,
-        alignment=TA_LEFT,
-        fontName='Times-Roman'
-    )
-    
-    # Contenido del certificado
+    normal_style = styles['Normal']
+
+    # Contenido mínimo: sólo el nombre y el QR
     story = []
-    
-    # Título del certificado
-    titulo = Paragraph("CERTIFICADO DE ESTUDIOS", titulo_style)
-    story.append(titulo)
-    story.append(Spacer(1, 20))
-    
-    # Texto del certificado
-    texto_certificado = f"""
-    Por medio del presente certificado, se hace constar que el estudiante:
-    """
-    story.append(Paragraph(texto_certificado, texto_style))
-    story.append(Spacer(1, 10))
-    
+    try:
+        from reportlab.lib.enums import TA_CENTER
+        nombre_style = ParagraphStyle('NombrePersonalizado', parent=styles['Normal'], fontSize=18, alignment=TA_CENTER)
+    except Exception:
+        nombre_style = normal_style
+
     # Nombre del estudiante (destacado)
     story.append(Paragraph(nombre, nombre_style))
-    story.append(Spacer(1, 20))
-    
-    # Información adicional
-    info_texto = f"""
-    Ha completado satisfactoriamente sus estudios en la carrera de <b>{carrera}</b> 
-    en la Universidad Peruana Los Andes (UPLA).
-    
-    Este certificado es válido y puede ser verificado mediante el código QR 
-    adjunto o visitando nuestro sistema de verificación.
-    
-    ID de Certificado: {id_certificado}
-    Fecha de emisión: {datetime.datetime.now().strftime("%d de %B de %Y")}
-    """
-    story.append(Paragraph(info_texto, texto_style))
-    story.append(Spacer(1, 30))
-    
-    # Agregar código QR
+    story.append(Spacer(1, 12))
+
+    # Agregar código QR si existe
     if os.path.exists(qr_path):
-        qr_image = Image(qr_path, width=2*inch, height=2*inch)
-        story.append(qr_image)
-    
+        try:
+            from reportlab.lib.units import inch
+            from reportlab.platypus import Image as RLImage
+            qr_image = RLImage(qr_path, width=2*inch, height=2*inch)
+            story.append(qr_image)
+        except Exception:
+            pass
+
     # Construir el PDF
     doc.build(story)
-    
+
     # Obtener el contenido del buffer
     pdf_content = buffer.getvalue()
     buffer.close()
-    
+
     return pdf_content
 
 
