@@ -22,8 +22,8 @@ def generar_certificado_desde_plantilla(datos, qr_path, id_certificado):
     """
     Genera un certificado usando la plantilla Word existente
     """
-    # Ruta a la plantilla Word (archivo dentro del paquete `certificados/plantillas_word`)
-    plantilla_path = os.path.join(settings.BASE_DIR, 'certificados', 'plantillas_word', 'plantilla_certificado.docx')
+    # Ruta a la plantilla Word en la carpeta plantillas_word
+    plantilla_path = os.path.join(settings.BASE_DIR, 'plantillas_word', 'plantilla_certificado.docx')
     
     if not os.path.exists(plantilla_path):
         raise FileNotFoundError(f"No se encontró la plantilla de certificado Word en {plantilla_path}")
