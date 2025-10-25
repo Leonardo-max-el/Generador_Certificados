@@ -317,7 +317,7 @@ def descargar_plantilla(request):
         
         # Crear un RichText para el nombre con Times New Roman
         nombre_rt = RichText()
-        nombre_rt.add(datos['nombre'], font='Times New Roman', size=56, bold=True, italic=True)  # Aumentado a 26 y agregado bold=True
+        nombre_rt.add(datos['nombre'], font='Times New Roman', size=56, bold=True, italic=True)
         
         # Preparar el contexto con el nombre estilizado
         context = {
@@ -497,12 +497,7 @@ def generar_lote(request):
                 # Inicializar COM y convertir a PDF
                 pythoncom.CoInitialize()
                 try:
-               
-                    word.Visible = False
-                    doc = word.Documents.Open(temp_docx.name)
-                    doc.SaveAs(temp_pdf.name, FileFormat=17)  # 17 representa PDF
-                    doc.Close()
-                    word.Quit()
+                    convert(temp_docx.name, temp_pdf.name)
                 except Exception as e:
                     print(f"Error al convertir a PDF: {str(e)}")
                     # Limpiar archivos temporales antes de salir
