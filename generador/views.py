@@ -20,31 +20,36 @@ from docx2pdf import convert
 import pythoncom
 import win32com.client
 
-def generar_qr(dni, nombre, carrera):
+def generar_qr(dni, nombre, carrera, codigo):
     # Generar ID único para el certificado
     id_certificado = str(uuid.uuid4())
     fecha_generacion = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Crear el contenido del QR
+    # Apuntar el QR directamente al PDF público del certificado
+    url_verificacion = f"http://10.86.231.63:8000/media/certificados/certificado_{id_certificado}.pdf"
+    
+    # Crear el contenido del QR (ahora con la URL)
     datos_qr = {
         'id_certificado': id_certificado,
         'dni': dni,
         'nombre': nombre,
         'carrera': carrera,
-        'fecha_generacion': fecha_generacion
+        'fecha_generacion': fecha_generacion,
+        'url': url_verificacion
     }
     
     # Convertir a JSON
     contenido_qr = json.dumps(datos_qr)
     
-    # Crear el código QR
+    # Crear el código QR que apunta directamente a la URL
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=20,  # Aumentado de 10 a 20
+        box_size=20,
         border=4,
     )
-    qr.add_data(contenido_qr)
+    # Usar directamente la URL para el QR
+    qr.add_data(url_verificacion)
     qr.make(fit=True)
 
     # Crear la imagen del QR en negro
@@ -58,7 +63,20 @@ def generar_qr(dni, nombre, carrera):
     qr_path = os.path.join(qr_dir, f'qr_{id_certificado}.png')
     qr_image.save(qr_path)
     
-    return qr_path, id_certificado
+    # Guardar en la base de datos
+    from .models import CertificadoGenerado
+    certificado = CertificadoGenerado(
+        id_certificado=id_certificado,
+        codigo=codigo,
+        dni=dni,
+        nombre=nombre,
+        carrera=carrera,
+        ruta_qr=qr_path,
+        url_verificacion=url_verificacion
+    )
+    certificado.save()
+    
+    return qr_path, id_certificado, url_verificacion
 
 def validar_usuario(dni, codigo=None, solo_dni=False):
     # Ruta al archivo Excel
@@ -103,7 +121,7 @@ def index(request):
     # Si el usuario ya está autenticado, mostrar directamente la página de confirmación
     if request.session.get('autenticado'):
         if request.session.get('es_admin'):
-            return redirect('admin_panel')
+            return redirect('opciones_admin')
         else:
             dni = request.session.get('dni_validado')
             valido, datos = validar_usuario(dni, None)
@@ -144,17 +162,27 @@ def index(request):
                 
         elif form_type == 'logout':
             # Cerrar sesión
-            request.session.flush()
-            return redirect('index')
+            from django.contrib.auth import logout
+            logout(request)  # Método oficial de Django para cerrar sesión
+            
+            # Asegurar que se eliminen todas las cookies de sesión
+            response = redirect('index')
+            response.delete_cookie('sessionid')
+            response.delete_cookie('csrftoken')
+            
+            # Establecer max-age y expires para forzar la eliminación
+            response.set_cookie('sessionid', '', max_age=0, expires='Thu, 01 Jan 1970 00:00:00 GMT')
+            
+            return response
     
     return render(request, 'generador/index.html', {
         'mensaje_error_login': mensaje_error_login
     })
 
-def admin_panel(request):
+def opciones_admin(request):
     if not request.session.get('autenticado') or not request.session.get('es_admin'):
         return redirect('index')
-        
+    
     mensaje_error = None
     mensaje_exito = None
     
@@ -171,15 +199,66 @@ def admin_panel(request):
                     for chunk in excel_file.chunks():
                         destination.write(chunk)
                 
-                mensaje_exito = 'Archivo cargado exitosamente.'
+                # Cargar los datos del Excel a la base de datos
+                from .models import CertificadoGenerado
+                df = pd.read_excel(excel_path)
                 
+                # Convertir columnas a string para evitar problemas
+                df['DNI'] = df['DNI'].astype(str)
+                df['CODIGO'] = df['CODIGO'].astype(str)
+                
+                # Importar datos a la base de datos
+                registros_importados = 0
+                for _, row in df.iterrows():
+                    # Verificar si ya existe un registro con el mismo DNI y CODIGO
+                    if not CertificadoGenerado.objects.filter(dni=row['DNI'], codigo=row['CODIGO']).exists():
+                        # Generar un ID único para cada registro
+                        id_certificado = str(uuid.uuid4())
+                        # Crear URL de verificación
+                        url_verificacion = f"http://localhost:8000/verificar/{id_certificado}/"
+                        
+                        # Crear registro en la base de datos
+                        CertificadoGenerado.objects.create(
+                            id_certificado=id_certificado,
+                            codigo=row['CODIGO'],
+                            dni=row['DNI'],
+                            nombre=row['NOMBRES'],
+                            carrera=row['CARRERA'],
+                            url_verificacion=url_verificacion
+                        )
+                        registros_importados += 1
+                
+                mensaje_exito = f'Archivo cargado exitosamente. {registros_importados} registros importados a la base de datos.'
             except Exception as e:
-                mensaje_error = f'Error al cargar el archivo: {str(e)}'
+                mensaje_error = f'Error al procesar el archivo: {str(e)}'
     
-    return render(request, 'generador/admin.html', {
+    return render(request, 'generador/opciones_admin.html', {
         'mensaje_error': mensaje_error,
         'mensaje_exito': mensaje_exito
     })
+
+def listar_certificados(request):
+    if not request.session.get('autenticado') or not request.session.get('es_admin'):
+        return redirect('index')
+    
+    from .models import CertificadoGenerado
+    from django.core.paginator import Paginator
+    
+    # Obtener todos los certificados ordenados por fecha de generación (más reciente primero)
+    certificados = CertificadoGenerado.objects.all().order_by('-fecha_generacion')
+    
+    # Configurar la paginación (10 por página)
+    paginator = Paginator(certificados, 10)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+    
+    return render(request, 'generador/listar_certificados.html', {
+        'page_obj': page_obj,
+    })
+
+def admin_panel(request):
+    # Redirigir a opciones_admin para evitar conflictos
+    return redirect('opciones_admin')
 
 def descargar_plantilla(request):
     print("Iniciando proceso de descarga...")
@@ -216,7 +295,7 @@ def descargar_plantilla(request):
     try:
         print("Generando código QR...")
         # 1. Generar el código QR
-        qr_path, id_certificado = generar_qr(datos['dni'], datos['nombre'], datos['carrera'])
+        qr_path, id_certificado, url_verificacion = generar_qr(datos['dni'], datos['nombre'], datos['carrera'], datos['codigo'])
         
         # Ruta a la plantilla Word
         plantilla_path = os.path.join(settings.MEDIA_ROOT, 'plantillas', 'plantilla_certificado.docx')
@@ -259,7 +338,27 @@ def descargar_plantilla(request):
         convert(temp_docx, temp_pdf)
         pythoncom.CoUninitialize()
         
-        print("PDF generado, preparando respuesta...")
+        print("PDF generado, guardando en la base de datos...")
+        
+        # Guardar la ruta del PDF en la base de datos
+        from .models import CertificadoGenerado
+        certificado = CertificadoGenerado.objects.filter(id_certificado=id_certificado).first()
+        if certificado:
+            # Crear una copia permanente del PDF en el directorio de medios
+            pdf_dir = os.path.join(settings.MEDIA_ROOT, 'certificados')
+            os.makedirs(pdf_dir, exist_ok=True)
+            pdf_path = os.path.join(pdf_dir, f'certificado_{id_certificado}.pdf')
+            
+            # Copiar el PDF temporal al directorio de medios
+            with open(temp_pdf, 'rb') as src, open(pdf_path, 'wb') as dst:
+                dst.write(src.read())
+            
+            # Actualizar el registro en la base de datos (usar URL servible)
+            pdf_url = f"http://10.86.231.63:8000/media/certificados/certificado_{id_certificado}.pdf"
+            certificado.ruta_pdf = pdf_url
+            certificado.save()
+        
+        print("PDF guardado (URL) en la base de datos, preparando respuesta...")
         # 5. Preparar la respuesta con el PDF
         with open(temp_pdf, 'rb') as pdf_file:
             # Leer el contenido del PDF en memoria
@@ -302,6 +401,32 @@ def descargar_plantilla(request):
         except Exception as e:
             print(f"Error al eliminar PDF temporal: {e}")
 
+def verificar_certificado(request, id_certificado):
+    """
+    Vista para verificar la autenticidad de un certificado mediante su ID único.
+    Esta vista se accede al escanear el código QR.
+    """
+    from .models import CertificadoGenerado
+    
+    # Buscar el certificado en la base de datos
+    certificado = CertificadoGenerado.objects.filter(id_certificado=id_certificado).first()
+    
+    if certificado:
+        # Si el certificado existe, mostrar la información
+        context = {
+            'certificado': certificado,
+            'valido': True,
+            'mensaje': 'Certificado válido',
+        }
+    else:
+        # Si el certificado no existe, mostrar mensaje de error
+        context = {
+            'valido': False,
+            'mensaje': 'El certificado no es válido o no existe en nuestros registros.',
+        }
+    
+    return render(request, 'generador/verificar.html', context)
+
 def generar_lote(request):
     if request.method == 'POST':
         # Verificar si se subió un archivo
@@ -341,7 +466,7 @@ def generar_lote(request):
                 }
                 
                 # Generar QR
-                qr_path, id_certificado = generar_qr(datos['dni'], datos['nombre'], datos['carrera'])
+                qr_path, id_certificado, url_verificacion = generar_qr(datos['dni'], datos['nombre'], datos['carrera'], str(row['CODIGO']))
                 
                 # Crear archivos temporales para Word y PDF
                 temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')

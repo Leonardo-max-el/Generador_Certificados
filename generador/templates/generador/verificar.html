@@ -1,0 +1,72 @@
+{% extends "generador/base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="text-center">Verificación de Certificado</h3>
+                </div>
+                <div class="card-body">
+                    {% if valido %}
+                        <div class="alert alert-success">
+                            <h4 class="alert-heading">{{ mensaje }}</h4>
+                            <p>Este certificado ha sido emitido por nuestra institución y es auténtico.</p>
+                        </div>
+                        
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5>Información del Certificado</h5>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-bordered">
+                                    <tr>
+                                        <th>ID del Certificado:</th>
+                                        <td>{{ certificado.id_certificado }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Nombre:</th>
+                                        <td>{{ certificado.nombre }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>DNI:</th>
+                                        <td>{{ certificado.dni }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Carrera:</th>
+                                        <td>{{ certificado.carrera }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Fecha de Emisión:</th>
+                                        <td>{{ certificado.fecha_generacion }}</td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        {% if certificado.ruta_pdf %}
+                        <div class="text-center">
+                            <a href="{{ MEDIA_URL }}certificados/certificado_{{ certificado.id_certificado }}.pdf" class="btn btn-primary" target="_blank">
+                                <i class="fas fa-file-pdf"></i> Ver Certificado
+                            </a>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="alert alert-danger">
+                            <h4 class="alert-heading">{{ mensaje }}</h4>
+                            <p>No se ha encontrado un certificado válido con el identificador proporcionado.</p>
+                        </div>
+                    {% endif %}
+                    
+                    <div class="text-center mt-4">
+                        <a href="{% url 'index' %}" class="btn btn-secondary">
+                            <i class="fas fa-home"></i> Volver al Inicio
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
