@@ -33,8 +33,11 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 # URL base para enlaces públicos (certificados, verificación, etc.)
 BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-
+ALLOWED_HOSTS = [
+    os.environ.get("RAILWAY_STATIC_URL", "web-production-0ffc.up.railway.app"),
+    "localhost",
+    "127.0.0.1"
+]
 
 
 
