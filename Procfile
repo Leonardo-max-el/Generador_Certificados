@@ -1,1 +1,1 @@
-web: gunicorn certificados.wsgi
+web: gunicorn Generador_Certificados.wsgi
