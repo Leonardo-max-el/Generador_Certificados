@@ -21,12 +21,15 @@ def generar_certificado_desde_plantilla(datos, qr_path, id_certificado):
     """
     Genera un certificado usando la plantilla Word existente
     """
+    print("🔄 Preparando plantilla Word...")
     # Ruta a la plantilla Word en la carpeta plantillas_word
     plantilla_path = os.path.join(settings.BASE_DIR, 'plantillas_word', 'plantilla_certificado.docx')
     
     if not os.path.exists(plantilla_path):
+        print("❌ Error: No se encontró la plantilla Word")
         raise FileNotFoundError(f"No se encontró la plantilla de certificado Word en {plantilla_path}")
     
+    print("✅ Plantilla Word encontrada")
     # Crear un archivo temporal para el resultado
     temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
     temp_docx.close()
@@ -69,8 +72,10 @@ def convertir_a_pdf(docx_path):
     """
     Convierte el documento Word a PDF
     """
+    print("🔄 Iniciando conversión a PDF...")
     try:
         # Intentar usar docx2pdf si está disponible
+        print("📄 Intentando usar docx2pdf...")
         from docx2pdf import convert
         temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
         temp_pdf.close()
@@ -178,26 +183,36 @@ def crear_certificado_completo(datos, formato='pdf'):
     """
     Crear certificado y devolverlo en memoria listo para descargar
     """
+    print("\n🔵 Iniciando proceso de generación de certificado...")
+    print(f"📋 Datos recibidos: Nombre={datos.get('nombre')}, Carrera={datos.get('carrera')}")
+    
     try:
+        print("🔄 Generando código QR...")
         qr_path, id_certificado, url_verificacion = generar_qr_optimizado(
             datos['dni'],
             datos['nombre'],
             datos['carrera'],
             datos['codigo']
         )
+        print(f"✅ Código QR generado: {id_certificado}")
 
         try:
+            print("🔄 Generando certificado desde plantilla...")
             contenido = generar_certificado_desde_plantilla(
                 datos,
                 qr_path,
                 id_certificado
             )
+            print("✅ Certificado generado exitosamente")
+            
             mime_type = 'application/pdf'
             extension = 'pdf'
 
+            print("💾 Actualizando registro en base de datos...")
             # Guardar ruta PDF en base de datos (opcional)
             certificado = CertificadoGenerado.objects.get(id_certificado=id_certificado)
             certificado.ruta_pdf = f'/certificados/certificado_{id_certificado}.{extension}'  # solo referencia
+            print("✅ Base de datos actualizada")
             certificado.save()
 
             return {
