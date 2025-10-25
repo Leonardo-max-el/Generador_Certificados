@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: generador-certificados
+    env: python
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn Generador_Certificados.wsgi:application"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: Generador_Certificados.settings
+      - key: PYTHON_VERSION
+        value: 3.11.9
