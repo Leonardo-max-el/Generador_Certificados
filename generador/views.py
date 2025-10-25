@@ -18,7 +18,7 @@ from docx.shared import Mm, Pt, RGBColor
 
 from docx2pdf import convert
 import pythoncom
-import win32com.client
+
 
 def generar_qr(dni, nombre, carrera, codigo):
     # Generar ID único para el certificado
@@ -497,8 +497,7 @@ def generar_lote(request):
                 # Inicializar COM y convertir a PDF
                 pythoncom.CoInitialize()
                 try:
-                    import win32com.client
-                    word = win32com.client.Dispatch("Word.Application")
+               
                     word.Visible = False
                     doc = word.Documents.Open(temp_docx.name)
                     doc.SaveAs(temp_pdf.name, FileFormat=17)  # 17 representa PDF
