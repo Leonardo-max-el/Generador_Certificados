@@ -12,23 +12,28 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 import dj_database_url
 
+# Cargar variables de entorno desde .env
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-18f_=2fj18n%-!6)95)+7b^k_5aq#hsxnt3af(%-yx#p)$kt9+'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-18f_=2fj18n%-!6)95)+7b^k_5aq#hsxnt3af(%-yx#p)$kt9+')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['web-production-0ffc.up.railway.app', 'localhost', '127.0.0.1']
+# URL base para enlaces públicos (certificados, verificación, etc.)
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
+
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 
